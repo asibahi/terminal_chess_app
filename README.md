@@ -1,0 +1,1 @@
+This is trying to learn some rust in a somewhat of a real world setting. an app where you play chess vs the terminal. very rudimentary.
