@@ -114,41 +114,39 @@ impl cursive::view::View for BoardView {
                 }
                 Some(from) => {
                     if let Some(to) = self.get_sq(position, offset) {
-                        let m = self
+                        let input_move = self
                             .board
                             .legal_moves()
                             .into_iter()
                             .find(|m| m.from() == Some(from) && m.to() == to);
-                        match m {
-                            Some(mv) => {
-                                self.board.play_unchecked(&mv);
 
-                                if self.board.is_checkmate() {
-                                    return EventResult::Consumed(Some(Callback::from_fn(|s| {
-                                        game_over(s, "Game Over. You win.")
-                                    })));
-                                } else if self.board.is_game_over() {
-                                    return EventResult::Consumed(Some(Callback::from_fn(|s| {
-                                        game_over(s, "Game Over.")
-                                    })));
-                                };
+                        if let Some(mv) = input_move {
+                            self.board.play_unchecked(&mv);
 
-                                let legals = self.board.legal_moves();
-                                let cpu_move = legals.choose(&mut self.rng).unwrap();
+                            if self.board.is_checkmate() {
+                                return EventResult::Consumed(Some(Callback::from_fn(|s| {
+                                    game_over(s, "Game Over. You win.")
+                                })));
+                            } else if self.board.is_game_over() {
+                                return EventResult::Consumed(Some(Callback::from_fn(|s| {
+                                    game_over(s, "Game Over.")
+                                })));
+                            };
 
-                                self.board.play_unchecked(&cpu_move);
+                            let legals = self.board.legal_moves();
+                            let cpu_move = legals.choose(&mut self.rng).unwrap();
 
-                                if self.board.is_checkmate() {
-                                    return EventResult::Consumed(Some(Callback::from_fn(|s| {
-                                        game_over(s, "Game Over. I win. Hahaha.")
-                                    })));
-                                } else if self.board.is_game_over() {
-                                    return EventResult::Consumed(Some(Callback::from_fn(|s| {
-                                        game_over(s, "Game Over.")
-                                    })));
-                                };
-                            }
-                            None => (),
+                            self.board.play_unchecked(&cpu_move);
+
+                            if self.board.is_checkmate() {
+                                return EventResult::Consumed(Some(Callback::from_fn(|s| {
+                                    game_over(s, "Game Over. I win. Hahaha.")
+                                })));
+                            } else if self.board.is_game_over() {
+                                return EventResult::Consumed(Some(Callback::from_fn(|s| {
+                                    game_over(s, "Game Over.")
+                                })));
+                            };
                         }
                         self.focused = None;
                         return EventResult::Consumed(None);
