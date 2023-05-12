@@ -1,17 +1,18 @@
 use cursive::{
     direction::Direction,
-    event::{Callback, Event, EventResult, MouseEvent},
+    event::{Callback, Event, EventResult, Key, MouseEvent},
     theme::{BaseColor, Color, ColorStyle},
     view::CannotFocus,
-    views::{Dialog, LinearLayout, Panel, SelectView},
+    views::{Dialog, Panel, SelectView},
     Cursive, Printer, Vec2,
 };
 use rand::seq::SliceRandom;
-use shakmaty::{Chess, Color as CColor, Position, Role, Square};
+use shakmaty::{Chess, Color as CColor, File, Position, Rank, Role, Square};
 
 struct BoardView {
     board: Chess,
     focused: Option<Square>,
+    highlighted: Option<Square>,
     rng: rand::rngs::ThreadRng,
 }
 
@@ -22,6 +23,7 @@ impl BoardView {
         BoardView {
             board,
             focused: None,
+            highlighted: None,
             rng: rand::thread_rng(),
         }
     }
@@ -69,6 +71,32 @@ impl BoardView {
 
         None
     }
+
+    fn process_move(&mut self, sq: Square) -> Option<EventResult> {
+        match self.focused {
+            None => {
+                if self.board.us().contains(sq) {
+                    self.focused = Some(sq);
+                    return Some(EventResult::Consumed(None));
+                }
+            }
+            Some(from) => {
+                let input_move = self
+                    .board
+                    .legal_moves()
+                    .into_iter()
+                    .find(|m| m.from() == Some(from) && m.to() == sq);
+
+                if let Some(event_result) = input_move.and_then(|mv| self.move_and_reply(mv)) {
+                    return Some(event_result);
+                }
+
+                self.focused = None;
+                return Some(EventResult::Consumed(None));
+            }
+        }
+        None
+    }
 }
 
 impl cursive::view::View for BoardView {
@@ -90,6 +118,8 @@ impl cursive::view::View for BoardView {
 
                 let color = if self.focused == Some(sq) {
                     Color::Dark(BaseColor::Yellow)
+                } else if self.highlighted == Some(sq) {
+                    Color::Light(BaseColor::Yellow)
                 } else if sq.is_dark() {
                     Color::RgbLowRes(1, 1, 1)
                 } else {
@@ -110,38 +140,65 @@ impl cursive::view::View for BoardView {
 
     fn on_event(&mut self, event: Event) -> EventResult {
         match event {
+            // Mouse Input
             Event::Mouse {
                 offset,
                 position,
                 event: MouseEvent::Press(_),
-            } => match self.focused {
-                None => {
-                    if let Some(sq) = self.get_sq(position, offset) {
-                        if self.board.us().contains(sq) {
-                            self.focused = Some(sq);
-                            return EventResult::Consumed(None);
-                        }
+            } => {
+                if let Some(sq) = self.get_sq(position, offset) {
+                    if let Some(event_result) = self.process_move(sq) {
+                        return event_result;
                     }
                 }
-                Some(from) => {
-                    if let Some(to) = self.get_sq(position, offset) {
-                        let input_move = self
-                            .board
-                            .legal_moves()
-                            .into_iter()
-                            .find(|m| m.from() == Some(from) && m.to() == to);
+            }
 
-                        if let Some(event_result) =
-                            input_move.and_then(|mv| self.move_and_reply(mv))
-                        {
-                            return event_result;
-                        }
-
-                        self.focused = None;
-                        return EventResult::Consumed(None);
-                    }
+            // Keyboard Input
+            Event::Key(Key::Left | Key::Right | Key::Up | Key::Down) | Event::Char(' ')
+                if self.highlighted.is_none() =>
+            {
+                self.highlighted = Some(Square::A1);
+                return EventResult::Consumed(None);
+            }
+            Event::Key(Key::Right) => {
+                let (f, r) = self.highlighted.unwrap().coords();
+                if f != File::H {
+                    let new_hl = Square::from_coords(f.offset(1).unwrap(), r);
+                    self.highlighted = Some(new_hl);
+                    return EventResult::Consumed(None);
                 }
-            },
+            }
+            Event::Key(Key::Left) => {
+                let (f, r) = self.highlighted.unwrap().coords();
+                if f != File::A {
+                    let new_hl = Square::from_coords(f.offset(-1).unwrap(), r);
+                    self.highlighted = Some(new_hl);
+                    return EventResult::Consumed(None);
+                }
+            }
+            Event::Key(Key::Up) => {
+                let (f, r) = self.highlighted.unwrap().coords();
+                if r != Rank::Eighth {
+                    let new_hl = Square::from_coords(f, r.offset(1).unwrap());
+                    self.highlighted = Some(new_hl);
+                    return EventResult::Consumed(None);
+                }
+            }
+            Event::Key(Key::Down) => {
+                let (f, r) = self.highlighted.unwrap().coords();
+                if r != Rank::First {
+                    let new_hl = Square::from_coords(f, r.offset(-1).unwrap());
+                    self.highlighted = Some(new_hl);
+                    return EventResult::Consumed(None);
+                }
+            }
+            Event::Char(' ') => {
+                let sq = self.highlighted.unwrap();
+                if let Some(event_result) = self.process_move(sq) {
+                    return event_result;
+                }
+            }
+
             _ => (),
         }
 
@@ -195,8 +252,8 @@ fn new_game(siv: &mut Cursive) {
     siv.add_layer(
         Dialog::new()
             .title("Chess")
-            .content(LinearLayout::horizontal().child(Panel::new(BoardView::new())))
-            .button("Quit game", |s| {
+            .content(Panel::new(BoardView::new()))
+            .button("Quit Game", |s| {
                 s.pop_layer();
             }),
     );
@@ -204,7 +261,8 @@ fn new_game(siv: &mut Cursive) {
     siv.add_layer(Dialog::info(
         "Controls:
 Click with the mouse on the piece you want to move,
-then click on the square you want to move it to.",
+then click on the square you want to move it to.
+Or use Arrows and Space.",
     ));
 }
 
