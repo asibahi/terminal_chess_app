@@ -1,13 +1,13 @@
 use cursive::{
     direction::Direction,
-    event::{Callback, Event, EventResult, Key, MouseEvent},
+    event::{Event, EventResult, Key, MouseEvent},
     theme::{BaseColor, Color, ColorStyle},
     view::CannotFocus,
     views::{Dialog, Panel, SelectView},
     Cursive, Printer, Vec2,
 };
 use rand::seq::SliceRandom;
-use shakmaty::{Chess, Color as CColor, File, Position, Rank, Role, Square};
+use shakmaty::{Chess, Color as CColor, Position, Role, Square};
 
 struct BoardView {
     board: Chess,
@@ -44,14 +44,17 @@ impl BoardView {
     fn move_and_reply(&mut self, mv: shakmaty::Move) -> Option<EventResult> {
         self.board.play_unchecked(&mv);
 
+        fn game_over(siv: &mut Cursive, msg: &str) {
+            siv.pop_layer();
+            siv.add_layer(Dialog::info(msg))
+        }
+
         if self.board.is_checkmate() {
-            return Some(EventResult::Consumed(Some(Callback::from_fn(|s| {
+            return Some(EventResult::with_cb(|s| {
                 game_over(s, "Game Over. You win.")
-            }))));
+            }));
         } else if self.board.is_game_over() {
-            return Some(EventResult::Consumed(Some(Callback::from_fn(|s| {
-                game_over(s, "Game Over.")
-            }))));
+            return Some(EventResult::with_cb(|s| game_over(s, "Game Over.")));
         };
 
         let legals = self.board.legal_moves();
@@ -60,24 +63,24 @@ impl BoardView {
         self.board.play_unchecked(cpu_move);
 
         if self.board.is_checkmate() {
-            return Some(EventResult::Consumed(Some(Callback::from_fn(|s| {
+            return Some(EventResult::with_cb(|s| {
                 game_over(s, "Game Over. I win. Hahaha.")
-            }))));
+            }));
         } else if self.board.is_game_over() {
-            return Some(EventResult::Consumed(Some(Callback::from_fn(|s| {
-                game_over(s, "Game Over.")
-            }))));
+            return Some(EventResult::with_cb(|s| game_over(s, "Game Over.")));
         };
 
         None
     }
 
-    fn process_move(&mut self, sq: Square) -> Option<EventResult> {
+    fn process_move(&mut self, sq: Square) -> EventResult {
         match self.focused {
             None => {
                 if self.board.us().contains(sq) {
                     self.focused = Some(sq);
-                    return Some(EventResult::Consumed(None));
+                    EventResult::Consumed(None)
+                } else {
+                    EventResult::Ignored
                 }
             }
             Some(from) => {
@@ -88,14 +91,13 @@ impl BoardView {
                     .find(|m| m.from() == Some(from) && m.to() == sq);
 
                 if let Some(event_result) = input_move.and_then(|mv| self.move_and_reply(mv)) {
-                    return Some(event_result);
+                    return event_result;
                 }
 
                 self.focused = None;
-                return Some(EventResult::Consumed(None));
+                EventResult::Consumed(None)
             }
         }
-        None
     }
 }
 
@@ -147,9 +149,9 @@ impl cursive::view::View for BoardView {
                 event: MouseEvent::Press(_),
             } => {
                 if let Some(sq) = self.get_sq(position, offset) {
-                    if let Some(event_result) = self.process_move(sq) {
-                        return event_result;
-                    }
+                    self.process_move(sq)
+                } else {
+                    EventResult::Ignored
                 }
             }
 
@@ -158,51 +160,34 @@ impl cursive::view::View for BoardView {
                 if self.highlighted.is_none() =>
             {
                 self.highlighted = Some(Square::A1);
-                return EventResult::Consumed(None);
+                EventResult::Consumed(None)
             }
-            Event::Key(Key::Right) => {
-                let (f, r) = self.highlighted.unwrap().coords();
-                if f != File::H {
-                    let new_hl = Square::from_coords(f.offset(1).unwrap(), r);
-                    self.highlighted = Some(new_hl);
-                    return EventResult::Consumed(None);
-                }
-            }
-            Event::Key(Key::Left) => {
-                let (f, r) = self.highlighted.unwrap().coords();
-                if f != File::A {
-                    let new_hl = Square::from_coords(f.offset(-1).unwrap(), r);
-                    self.highlighted = Some(new_hl);
-                    return EventResult::Consumed(None);
-                }
-            }
-            Event::Key(Key::Up) => {
-                let (f, r) = self.highlighted.unwrap().coords();
-                if r != Rank::Eighth {
-                    let new_hl = Square::from_coords(f, r.offset(1).unwrap());
-                    self.highlighted = Some(new_hl);
-                    return EventResult::Consumed(None);
-                }
-            }
-            Event::Key(Key::Down) => {
-                let (f, r) = self.highlighted.unwrap().coords();
-                if r != Rank::First {
-                    let new_hl = Square::from_coords(f, r.offset(-1).unwrap());
-                    self.highlighted = Some(new_hl);
-                    return EventResult::Consumed(None);
-                }
-            }
-            Event::Char(' ') => {
+            Event::Key(key) => {
                 let sq = self.highlighted.unwrap();
-                if let Some(event_result) = self.process_move(sq) {
-                    return event_result;
+                match key {
+                    Key::Right => {
+                        self.highlighted = sq.offset(1);
+                        EventResult::Consumed(None)
+                    }
+                    Key::Left => {
+                        self.highlighted = sq.offset(-1);
+                        EventResult::Consumed(None)
+                    }
+                    Key::Up => {
+                        self.highlighted = sq.offset(8);
+                        EventResult::Consumed(None)
+                    }
+                    Key::Down => {
+                        self.highlighted = sq.offset(-8);
+                        EventResult::Consumed(None)
+                    }
+                    _ => EventResult::Ignored,
                 }
             }
 
-            _ => (),
+            Event::Char(' ') => self.process_move(self.highlighted.unwrap()),
+            _ => EventResult::Ignored,
         }
-
-        EventResult::Ignored
     }
 
     fn required_size(&mut self, _: Vec2) -> Vec2 {
@@ -264,9 +249,4 @@ Click with the mouse on the piece you want to move,
 then click on the square you want to move it to.
 Or use Arrows and Space.",
     ));
-}
-
-fn game_over(siv: &mut Cursive, msg: &str) {
-    siv.pop_layer();
-    siv.add_layer(Dialog::info(msg))
 }
