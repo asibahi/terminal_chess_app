@@ -73,15 +73,11 @@ impl BoardView {
         None
     }
 
-    fn process_move(&mut self, sq: Square) -> EventResult {
+    fn process_focus_change(&mut self, sq: Square) -> EventResult {
         match self.focused {
-            None => {
-                if self.board.us().contains(sq) {
-                    self.focused = Some(sq);
-                    EventResult::Consumed(None)
-                } else {
-                    EventResult::Ignored
-                }
+            None if self.board.us().contains(sq) => {
+                self.focused = Some(sq);
+                EventResult::Consumed(None)
             }
             Some(from) => {
                 let input_move = self
@@ -90,13 +86,15 @@ impl BoardView {
                     .into_iter()
                     .find(|m| m.from() == Some(from) && m.to() == sq);
 
-                if let Some(event_result) = input_move.and_then(|mv| self.move_and_reply(mv)) {
-                    return event_result;
+                match input_move.and_then(|mv| self.move_and_reply(mv)) {
+                    Some(event_result) => event_result,
+                    None => {
+                        self.focused = None;
+                        EventResult::Consumed(None)
+                    }
                 }
-
-                self.focused = None;
-                EventResult::Consumed(None)
             }
+            _ => EventResult::Ignored,
         }
     }
 }
@@ -105,8 +103,8 @@ impl cursive::view::View for BoardView {
     fn draw(&self, printer: &Printer) {
         for file in 0..8 {
             for rank in 0..8 {
-                let y = 7 - rank;
                 let x = file * 3;
+                let y = 7 - rank;
 
                 let sq = Square::new(file + 8 * rank);
 
@@ -149,7 +147,7 @@ impl cursive::view::View for BoardView {
                 event: MouseEvent::Press(_),
             } => {
                 if let Some(sq) = self.get_sq(position, offset) {
-                    self.process_move(sq)
+                    self.process_focus_change(sq)
                 } else {
                     EventResult::Ignored
                 }
@@ -162,6 +160,7 @@ impl cursive::view::View for BoardView {
                 self.highlighted = Some(Square::A1);
                 EventResult::Consumed(None)
             }
+            Event::Char(' ') => self.process_focus_change(self.highlighted.unwrap()),
             Event::Key(key) => {
                 let sq = self.highlighted.unwrap();
                 match key {
@@ -184,8 +183,6 @@ impl cursive::view::View for BoardView {
                     _ => EventResult::Ignored,
                 }
             }
-
-            Event::Char(' ') => self.process_move(self.highlighted.unwrap()),
             _ => EventResult::Ignored,
         }
     }
@@ -218,14 +215,13 @@ pub fn show_options(siv: &mut Cursive) {
             .title("Select Variant")
             .content(
                 SelectView::new()
-                    .item("Chess", "Chess")
-                    .item("Racing Kings", "Racing Kings")
+                    .item_str("Chess")
+                    .item_str("Atomic")
                     .on_submit(|s, option: &str| {
                         s.pop_layer();
-                        if option == "Chess" {
-                            new_game(s)
-                        } else {
-                            s.add_layer(Dialog::info("Coming soon"))
+                        match option {
+                            "Chess" => new_game(s),
+                            _ => s.add_layer(Dialog::info("Coming soon")),
                         };
                     }),
             )
