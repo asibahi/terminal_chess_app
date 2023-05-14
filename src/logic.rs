@@ -124,6 +124,23 @@ impl cursive::view::View for BoardView {
                     }
                 }
                 Some(from) => {
+                // An attempt to add promotion ?? How should this work?
+                // EventResult::with_cb(|s| {
+                //     s.add_layer(
+                //         Dialog::new()
+                //             .content(
+                //                  SelectView::new()
+                //                      .item("Queen", Role::Queen)
+                //                      .item("Rook", Role::Rook)
+                //                      .item("Bighop", Role::Bishop)
+                //                      .item("Knight", Role::Knight)
+                //                      .on_submit(|s, option| {
+                //                          todo!();
+                //                          };
+                //                      }),
+                //             )
+                //     )
+                // })
                     if let Some(to) = self.get_sq(position, offset) {
                         let input_move = self
                             .board
