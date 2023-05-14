@@ -1,9 +1,9 @@
 use cursive::{
     direction::Direction,
-    event::{Callback, Event, EventResult, MouseEvent},
+    event::{Event, EventResult, Key, MouseEvent},
     theme::{BaseColor, Color, ColorStyle},
     view::CannotFocus,
-    views::{Dialog, LinearLayout, Panel, SelectView},
+    views::{Dialog, Panel, SelectView},
     Cursive, Printer, Vec2,
 };
 use rand::seq::SliceRandom;
@@ -12,6 +12,7 @@ use shakmaty::{Chess, Color as CColor, Position, Role, Square};
 struct BoardView {
     board: Chess,
     focused: Option<Square>,
+    highlighted: Option<Square>,
     rng: rand::rngs::ThreadRng,
 }
 
@@ -22,6 +23,7 @@ impl BoardView {
         BoardView {
             board,
             focused: None,
+            highlighted: None,
             rng: rand::thread_rng(),
         }
     }
@@ -42,14 +44,17 @@ impl BoardView {
     fn move_and_reply(&mut self, mv: shakmaty::Move) -> Option<EventResult> {
         self.board.play_unchecked(&mv);
 
+        fn game_over(siv: &mut Cursive, msg: &str) {
+            siv.pop_layer();
+            siv.add_layer(Dialog::info(msg))
+        }
+
         if self.board.is_checkmate() {
-            return Some(EventResult::Consumed(Some(Callback::from_fn(|s| {
+            return Some(EventResult::with_cb(|s| {
                 game_over(s, "Game Over. You win.")
-            }))));
+            }));
         } else if self.board.is_game_over() {
-            return Some(EventResult::Consumed(Some(Callback::from_fn(|s| {
-                game_over(s, "Game Over.")
-            }))));
+            return Some(EventResult::with_cb(|s| game_over(s, "Game Over.")));
         };
 
         let legals = self.board.legal_moves();
@@ -58,16 +63,56 @@ impl BoardView {
         self.board.play_unchecked(cpu_move);
 
         if self.board.is_checkmate() {
-            return Some(EventResult::Consumed(Some(Callback::from_fn(|s| {
+            return Some(EventResult::with_cb(|s| {
                 game_over(s, "Game Over. I win. Hahaha.")
-            }))));
+            }));
         } else if self.board.is_game_over() {
-            return Some(EventResult::Consumed(Some(Callback::from_fn(|s| {
-                game_over(s, "Game Over.")
-            }))));
+            return Some(EventResult::with_cb(|s| game_over(s, "Game Over.")));
         };
 
         None
+    }
+
+    fn process_focus_change(&mut self, sq: Square) -> EventResult {
+        match self.focused {
+            None if self.board.us().contains(sq) => {
+                self.focused = Some(sq);
+                EventResult::Consumed(None)
+            }
+            Some(from) => {
+                // An attempt to add promotion ?? How should this work?
+                // EventResult::with_cb(|s| {
+                //     s.add_layer(
+                //         Dialog::new()
+                //             .content(
+                //                  SelectView::new()
+                //                      .item("Queen", Role::Queen)
+                //                      .item("Rook", Role::Rook)
+                //                      .item("Bighop", Role::Bishop)
+                //                      .item("Knight", Role::Knight)
+                //                      .on_submit(|s, option| {
+                //                          todo!();
+                //                          };
+                //                      }),
+                //             )
+                //     )
+                // })
+                let input_move = self
+                    .board
+                    .legal_moves()
+                    .into_iter()
+                    .find(|m| m.from() == Some(from) && m.to() == sq);
+
+                match input_move.and_then(|mv| self.move_and_reply(mv)) {
+                    Some(event_result) => event_result,
+                    None => {
+                        self.focused = None;
+                        EventResult::Consumed(None)
+                    }
+                }
+            }
+            _ => EventResult::Ignored,
+        }
     }
 }
 
@@ -75,8 +120,8 @@ impl cursive::view::View for BoardView {
     fn draw(&self, printer: &Printer) {
         for file in 0..8 {
             for rank in 0..8 {
-                let y = 7 - rank;
                 let x = file * 3;
+                let y = 7 - rank;
 
                 let sq = Square::new(file + 8 * rank);
 
@@ -90,6 +135,8 @@ impl cursive::view::View for BoardView {
 
                 let color = if self.focused == Some(sq) {
                     Color::Dark(BaseColor::Yellow)
+                } else if self.highlighted == Some(sq) {
+                    Color::Light(BaseColor::Yellow)
                 } else if sq.is_dark() {
                     Color::RgbLowRes(1, 1, 1)
                 } else {
@@ -110,59 +157,51 @@ impl cursive::view::View for BoardView {
 
     fn on_event(&mut self, event: Event) -> EventResult {
         match event {
+            // Mouse Input
             Event::Mouse {
                 offset,
                 position,
                 event: MouseEvent::Press(_),
-            } => match self.focused {
-                None => {
-                    if let Some(sq) = self.get_sq(position, offset) {
-                        if self.board.us().contains(sq) {
-                            self.focused = Some(sq);
-                            return EventResult::Consumed(None);
-                        }
-                    }
+            } => {
+                if let Some(sq) = self.get_sq(position, offset) {
+                    self.process_focus_change(sq)
+                } else {
+                    EventResult::Ignored
                 }
-                Some(from) => {
-                // An attempt to add promotion ?? How should this work?
-                // EventResult::with_cb(|s| {
-                //     s.add_layer(
-                //         Dialog::new()
-                //             .content(
-                //                  SelectView::new()
-                //                      .item("Queen", Role::Queen)
-                //                      .item("Rook", Role::Rook)
-                //                      .item("Bighop", Role::Bishop)
-                //                      .item("Knight", Role::Knight)
-                //                      .on_submit(|s, option| {
-                //                          todo!();
-                //                          };
-                //                      }),
-                //             )
-                //     )
-                // })
-                    if let Some(to) = self.get_sq(position, offset) {
-                        let input_move = self
-                            .board
-                            .legal_moves()
-                            .into_iter()
-                            .find(|m| m.from() == Some(from) && m.to() == to);
+            }
 
-                        if let Some(event_result) =
-                            input_move.and_then(|mv| self.move_and_reply(mv))
-                        {
-                            return event_result;
-                        }
-
-                        self.focused = None;
-                        return EventResult::Consumed(None);
+            // Keyboard Input
+            Event::Key(Key::Left | Key::Right | Key::Up | Key::Down) | Event::Char(' ')
+                if self.highlighted.is_none() =>
+            {
+                self.highlighted = Some(Square::A1);
+                EventResult::Consumed(None)
+            }
+            Event::Char(' ') => self.process_focus_change(self.highlighted.unwrap()),
+            Event::Key(key) => {
+                let sq = self.highlighted.unwrap();
+                match key {
+                    Key::Right => {
+                        self.highlighted = sq.offset(1);
+                        EventResult::Consumed(None)
                     }
+                    Key::Left => {
+                        self.highlighted = sq.offset(-1);
+                        EventResult::Consumed(None)
+                    }
+                    Key::Up => {
+                        self.highlighted = sq.offset(8);
+                        EventResult::Consumed(None)
+                    }
+                    Key::Down => {
+                        self.highlighted = sq.offset(-8);
+                        EventResult::Consumed(None)
+                    }
+                    _ => EventResult::Ignored,
                 }
-            },
-            _ => (),
+            }
+            _ => EventResult::Ignored,
         }
-
-        EventResult::Ignored
     }
 
     fn required_size(&mut self, _: Vec2) -> Vec2 {
@@ -193,14 +232,13 @@ pub fn show_options(siv: &mut Cursive) {
             .title("Select Variant")
             .content(
                 SelectView::new()
-                    .item("Chess", "Chess")
-                    .item("Racing Kings", "Racing Kings")
+                    .item_str("Chess")
+                    .item_str("Atomic")
                     .on_submit(|s, option: &str| {
                         s.pop_layer();
-                        if option == "Chess" {
-                            new_game(s)
-                        } else {
-                            s.add_layer(Dialog::info("Coming soon"))
+                        match option {
+                            "Chess" => new_game(s),
+                            _ => s.add_layer(Dialog::info("Coming soon")),
                         };
                     }),
             )
@@ -212,8 +250,8 @@ fn new_game(siv: &mut Cursive) {
     siv.add_layer(
         Dialog::new()
             .title("Chess")
-            .content(LinearLayout::horizontal().child(Panel::new(BoardView::new())))
-            .button("Quit game", |s| {
+            .content(Panel::new(BoardView::new()))
+            .button("Quit Game", |s| {
                 s.pop_layer();
             }),
     );
@@ -221,11 +259,7 @@ fn new_game(siv: &mut Cursive) {
     siv.add_layer(Dialog::info(
         "Controls:
 Click with the mouse on the piece you want to move,
-then click on the square you want to move it to.",
+then click on the square you want to move it to.
+Or use Arrows and Space.",
     ));
-}
-
-fn game_over(siv: &mut Cursive, msg: &str) {
-    siv.pop_layer();
-    siv.add_layer(Dialog::info(msg))
 }
