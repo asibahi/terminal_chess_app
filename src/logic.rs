@@ -82,6 +82,7 @@ impl BoardView {
             None if self.board.us().contains(sq) => {
                 self.focused = Some(sq);
 
+
                 if sq.rank() == Rank::Seventh && self.board.board().role_at(sq) == Some(Role::Pawn)
                 {
                     let p = self.promotion.clone();
@@ -117,6 +118,7 @@ impl BoardView {
                             true
                         }
                 });
+
 
                 match input_move.and_then(|mv| self.move_and_reply(mv)) {
                     Some(event_result) => event_result,
@@ -199,11 +201,13 @@ impl cursive::view::View for BoardView {
                     Key::Right => {
                         self.highlighted = sq.offset(1);
                         EventResult::Consumed(None)
+
                     }
                     Key::Left => {
                         self.highlighted = sq.offset(-1);
                         EventResult::Consumed(None)
                     }
+
                     Key::Up => {
                         self.highlighted = sq.offset(8);
                         EventResult::Consumed(None)
