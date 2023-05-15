@@ -1,3 +1,5 @@
+use std::{cell::RefCell, rc::Rc};
+
 use cursive::{
     direction::Direction,
     event::{Event, EventResult, Key, MouseEvent},
@@ -7,13 +9,14 @@ use cursive::{
     Cursive, Printer, Vec2,
 };
 use rand::seq::SliceRandom;
-use shakmaty::{Chess, Color as CColor, Position, Role, Square};
+use shakmaty::{Chess, Color as CColor, Position, Rank, Role, Square};
 
 struct BoardView {
     board: Chess,
     focused: Option<Square>,
     highlighted: Option<Square>,
     rng: rand::rngs::ThreadRng,
+    promotion: Rc<RefCell<Option<Role>>>,
 }
 
 impl BoardView {
@@ -25,6 +28,7 @@ impl BoardView {
             focused: None,
             highlighted: None,
             rng: rand::thread_rng(),
+            promotion: Rc::new(RefCell::new(None)),
         }
     }
 
@@ -77,31 +81,42 @@ impl BoardView {
         match self.focused {
             None if self.board.us().contains(sq) => {
                 self.focused = Some(sq);
-                EventResult::Consumed(None)
+
+                if sq.rank() == Rank::Seventh && self.board.board().role_at(sq) == Some(Role::Pawn)
+                {
+                    let p = self.promotion.clone();
+                    EventResult::with_cb(move |s| {
+                        let p = p.clone();
+                        s.add_layer(
+                            Dialog::new().content(
+                                SelectView::new()
+                                    .item("Queen", Role::Queen)
+                                    .item("Rook", Role::Rook)
+                                    .item("Bishop", Role::Bishop)
+                                    .item("Knight", Role::Knight)
+                                    .on_submit(move |s, &piece| {
+                                        s.pop_layer();
+                                        *p.borrow_mut() = Some(piece);
+                                    }),
+                            ),
+                        );
+                    })
+                } else {
+                    *self.promotion.borrow_mut() = None;
+                    EventResult::Consumed(None)
+                }
             }
+
             Some(from) => {
-                // An attempt to add promotion ?? How should this work?
-                // EventResult::with_cb(|s| {
-                //     s.add_layer(
-                //         Dialog::new()
-                //             .content(
-                //                  SelectView::new()
-                //                      .item("Queen", Role::Queen)
-                //                      .item("Rook", Role::Rook)
-                //                      .item("Bighop", Role::Bishop)
-                //                      .item("Knight", Role::Knight)
-                //                      .on_submit(|s, option| {
-                //                          todo!();
-                //                          };
-                //                      }),
-                //             )
-                //     )
-                // })
-                let input_move = self
-                    .board
-                    .legal_moves()
-                    .into_iter()
-                    .find(|m| m.from() == Some(from) && m.to() == sq);
+                let input_move = self.board.legal_moves().into_iter().find(|m| {
+                    m.from() == Some(from)
+                        && m.to() == sq
+                        && if self.promotion.borrow().is_some() {
+                            m.promotion() == *self.promotion.borrow()
+                        } else {
+                            true
+                        }
+                });
 
                 match input_move.and_then(|mv| self.move_and_reply(mv)) {
                     Some(event_result) => event_result,
